@@ -16,7 +16,7 @@ set val(stop)			20
 
 # ################################################
 # Make a simulator (scheduler)
-  set ns [new Simulator]
+set ns [new Simulator]
 
 # nam sim data
 set nf [open wrls.nam w]

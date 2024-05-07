@@ -1,116 +1,164 @@
-# Create a simulator
-set ns [new Simulator]
+# ################################################
+# Declare parameters to initialize the wireless properties
+set val(chan)           Channel/WirelessChannel    ;# Type of channel
+set val(prop)           Propagation/TwoRayGround   ;# Radio model (propagation)
+set val(netif)          Phy/WirelessPhy            ;# NIC (Interface Card)
+set val(mac)            Mac/802_11                 ;# Medium Access Control (MAC)
+set val(ifq)            Queue/DropTail/PriQueue    ;# Type of queuing interface
+set val(ll)             LL                         ;# link layer type
+set val(ant)            Antenna/OmniAntenna        ;# Antenna Model
+set val(ifqlen)         50                         ;# max packet in interface queue
+set val(nn)             4                          ;# number of mobilenodes
+set val(rp)             DSDV                       ;# routing protocol
+set val(x)        		300
+set val(y)        		300
+set val(stop)			20
 
-# Define flow colors for NAM
-$ns color 1 Blue
-$ns color 2 Red
+# ################################################
+# Make a simulator (scheduler)
+  set ns [new Simulator]
 
-# Open NAM trace file
-set file2 [open out.nam w]
-$ns namtrace-all $file2
+# nam sim data
+set nf [open wrls.nam w]
+$ns namtrace-all-wireless $nf $val(x) $val(y)
 
-# Open window trace files
-set wf1 [open WinFile1 w]
-set wf2 [open WinFile2 w]
+# cwnd data
+set wf1 [open wrls.tr w]
+set wf2 [open wrls_cross.tr w]
 
-# Define finish procedure
-proc finish {} {
-    global ns file2
-    $ns flush-trace
-    close $file2
-    exec nam out.nam &
-    exit 0
-}
+## ################################################
+# Set up topography object
+set topo  [new Topography]
+$topo load_flatgrid $val(x) $val(y)
 
-# Create the network nodes
+# ################################################
+# Create God, GOD Means - General Operations Director
+create-god $val(nn)
+
+# ################################################
+# Create a channel
+set channel1 [new $val(chan)]
+
+# ################################################
+# Configure nodes
+$ns node-config -adhocRouting $val(rp) \
+            -llType $val(ll) \
+            -macType $val(mac) \
+            -ifqType $val(ifq) \
+            -ifqLen $val(ifqlen) \
+            -antType $val(ant) \
+            -propType $val(prop) \
+            -phyType $val(netif) \
+            -topoInstance $topo \
+            -agentTrace ON \
+            -routerTrace ON \
+            -macTrace ON \
+            -movementTrace OFF \
+            -channel $channel1
+
 set n0 [$ns node]
 set n1 [$ns node]
 set n2 [$ns node]
 set n3 [$ns node]
-set n4 [$ns node]
-set n5 [$ns node]
 
-# Create network links
-$ns duplex-link $n0 $n2 2Mb 10ms DropTail
-$ns duplex-link $n1 $n2 2Mb 10ms DropTail
-$ns simplex-link $n2 $n3 0.3Mb 200ms DropTail
-$ns simplex-link $n3 $n2 0.3Mb 200ms DropTail
-$ns duplex-link $n3 $n4 0.5Mb 40ms DropTail
-$ns duplex-link $n3 $n5 0.5Mb 30ms DropTail
+# Disable random motion
+$n0 random-motion 0
+$n1 random-motion 0
 
-# Monitor the queue for link n2-n3 (for NAM)
-$ns duplex-link-op $n2 $n3 queuePos 0.1
+# Set initial node positions
+$n0 set X_ 0.0
+$n0 set Y_ 0.0
+$n0 set Z_ 0.0 
 
-# Set NAM positions for links
-$ns duplex-link-op $n0 $n2 orient right-down
-$ns duplex-link-op $n1 $n2 orient right-up
-$ns simplex-link-op $n2 $n3 orient right
-$ns simplex-link-op $n3 $n2 orient left
-$ns duplex-link-op $n3 $n4 orient right-up
-$ns duplex-link-op $n3 $n5 orient right-down
+$n1 set X_ 100.0 
+$n1 set Y_ 100.0
+$n1 set Z_ 0.0
 
-# Set queue size for n2-n3
-$ns queue-limit $n2 $n3 10
+$n2 set X_ 0.0
+$n2 set Y_ 100.0
+$n2 set Z_ 0.0
 
-# Setup n1 to n4 connection
-set tcp0 [new Agent/TCP/Linux]
-$tcp0 set fid_ 1
-$tcp0 set window_ 8000
-$tcp0 set packetSize_ 1500
-$ns attach-agent $n1 $tcp0
+$n3 set X_ 100.0
+$n3 set Y_ 0.0 
+$n3 set Z_ 0.0
 
-set sink0 [new Agent/TCPSink/Sack1]
-$sink0 set class_ 1
-$sink0 set ts_echo_rfc1323_ true
-$ns attach-agent $n4 $sink0
+$ns initial_node_pos $n1 50
+$ns initial_node_pos $n0 50
+$ns initial_node_pos $n2 50
+$ns initial_node_pos $n3 50
 
-set ftp0 [new Application/FTP]
-$ftp0 attach-agent $tcp0
+# n0 -> n1
+set tcp [new Agent/TCP/Linux]
+$tcp set fid_ 1
+$tcp set class_ 2
+$tcp set window_ 8000
+$tcp set packetSize_ 1500
+$ns at 0 "$tcp select_ca cubic"
+$ns attach-agent $n0 $tcp
 
-$ns connect $tcp0 $sink0
+set sink [new Agent/TCPSink/Sack1]
+$sink set class_ 2
+$sink set ts_echo_rfc1323_ true
+$ns attach-agent $n1 $sink
 
-# Setup n0 to n5 connection
+$ns connect $tcp $sink
+
+# n2 -> n3
 set tcp1 [new Agent/TCP/Linux]
 $tcp1 set fid_ 2
+$tcp1 set class_ 2
 $tcp1 set window_ 8000
-$tcp1 set packetSize_ 5000
-$ns attach-agent $n0 $tcp1
+$tcp1 set packetSize_ 1500
+$ns at 0 "$tcp1 select_ca cubic"
+$ns attach-agent $n2 $tcp1
 
 set sink1 [new Agent/TCPSink/Sack1]
 $sink1 set class_ 2
 $sink1 set ts_echo_rfc1323_ true
-$ns attach-agent $n5 $sink1
-
-set ftp1 [new Application/FTP]
-$ftp1 attach-agent $tcp1
+$ns attach-agent $n3 $sink1
 
 $ns connect $tcp1 $sink1
 
-# Schedule FTP traffic
-$ns at 0.1 "$ftp0 start"
+set ftp [new Application/FTP]
+$ftp attach-agent $tcp
+$ftp set type_ FTP
+set ftp1 [new Application/FTP]
+$ftp1 attach-agent $tcp1
+$ftp1 set type_ FTP
+
+# Schedule start/stop times
+$ns at 0.4 "$ftp start"
 $ns at 0.1 "$ftp1 start"
 
-$ns at 100.0 "$ftp0 stop"
-$ns at 100.0 "$ftp1 stop"
+$ns at $val(stop) "$ns nam-end-wireless $val(stop)"
+$ns at $val(stop) "stop"
+$ns at 20.5 "puts \"end simulation\" ; $ns halt"
 
-# Plot congestion window
-proc plotWindow {tcpSource file} {
-    global ns
-
-    set time 0.1
-    set now [$ns now]
-    set cwnd [$tcpSource set cwnd_]
-
-    puts $file "$now $cwnd"
-    $ns at [expr $now+$time] "plotWindow $tcpSource $file"
+proc stop {} {
+	global ns wf1 wf2 nf
+	$ns flush-trace
+	close $wf1
+	close $wf2
+	close $nf
+	exec nam wrls.nam &
 }
 
-# Start plotting for both connections
-$ns at 0.1 "plotWindow $tcp0 $wf1"
-$ns at 0.1 "plotWindow $tcp1 $wf2"
+# Setup proc for cwnd plotting
+proc plotWindow {tcpSource1 tcpSource2 file1 file2} {
+   global ns
 
-# Set simulation end time
-$ns at 125.0 "finish"
+   set time 0.1
+   set now [$ns now]
+   set cwnd1 [$tcpSource1 set cwnd_]
+   set cwnd2 [$tcpSource2 set cwnd_]
 
-# Run simulation
+   puts $file1 "$now $cwnd1"
+   puts $file2 "$now $cwnd2"
+   $ns at [expr $now+$time] "plotWindow $tcpSource1 $tcpSource2 $file1 $file2" 
+}
+
+# Setup plotting
+$ns at 0.1 "plotWindow $tcp $tcp1 $wf1 $wf2"
+
+# Start simulation
 $ns run
